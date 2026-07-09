@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>AttoLog</title>
+<meta name="theme-color" content="#0B1420" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="AttoLog" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="manifest" href="manifest.json" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #05090F; overscroll-behavior: none; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  input, textarea { font-size: 16px; } /* prevents iOS zoom on focus */
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useMemo } = React;
+
+// ---- Local storage shim (mirrors the window.storage.get/set interface) ----
+window.storage = {
+  async get(key) {
+    const v = localStorage.getItem(key);
+    if (v === null) return null;
+    return { key, value: v, shared: false };
+  },
+  async set(key, value) {
+    localStorage.setItem(key, value);
+    return { key, value, shared: false };
+  },
+  async delete(key) {
+    localStorage.removeItem(key);
+    return { key, deleted: true, shared: false };
+  },
+  async list(prefix) {
+    const keys = Object.keys(localStorage).filter((k) => !prefix || k.startsWith(prefix));
+    return { keys, prefix, shared: false };
+  },
+};
+
+function mkIcon(paths) {
+  return function Icon({ size = 18, color = "currentColor", style, fill = "none", strokeWidth = 2 }) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill={fill}
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={style}
+      >
+        {paths}
+      </svg>
+    );
+  };
+}
+
+const Zap = ({ size = 18, color = "currentColor", style, fill = "none" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+    <polygon points="13 2 3 14 11 14 10 22 21 10 13 10 13 2" />
+  </svg>
+);
+
+const Battery = mkIcon(
+  <>
+    <rect x="2" y="7" width="17" height="10" rx="2" />
+    <line x1="22" y1="11" x2="22" y2="13" />
+  </>
+);
+
+const Car = mkIcon(
+  <>
+    <path d="M5 17h14M5 17a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm14 0a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM3 17V11l2-5h14l2 5v6" />
+  </>
+);
+
+const TrendingUp = mkIcon(
+  <>
+    <polyline points="3 17 9 11 13 15 21 6" />
+    <polyline points="15 6 21 6 21 12" />
+  </>
+);
+
+const Wallet = mkIcon(
+  <>
+    <path d="M20 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+    <path d="M16 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v2" />
+    <circle cx="17" cy="13" r="1.2" />
+  </>
+);
+
+const Calendar = mkIcon(
+  <>
+    <rect x="3" y="4" width="18" height="18" rx="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </>
+);
+
+const Bell = mkIcon(
+  <>
+    <path d="M6 8a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
+    <path d="M10 21a2 2 0 0 0 4 0" />
+  </>
+);
+
+const ArrowLeft = mkIcon(
+  <>
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </>
+);
+
+const Plus = mkIcon(
+  <>
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </>
+);
+
+const ChevronRight = mkIcon(<polyline points="9 6 15 12 9 18" />);
+
+const Filter = mkIcon(<polygon points="22 3 2 3 10 12.5 10 19 14 21 14 12.5 22 3" />);
+
+const Pencil = mkIcon(
+  <>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </>
+);
+
+const LogOut = mkIcon(
+  <>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </>
+);
+
+const Info = mkIcon(
+  <>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </>
+);
+
+const HomeIcon = mkIcon(
+  <>
+    <path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z" />
+  </>
+);
+
+const List = mkIcon(
+  <>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </>
+);
+
+const User = mkIcon(
+  <>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </>
+);
+
+const Gauge = mkIcon(
+  <>
+    <circle cx="12" cy="12" r="9" />
+    <line x1="12" y1="12" x2="16" y2="8" />
+    <line x1="8" y1="12" x2="8.01" y2="12" />
+  </>
+);
+
+const FileText = mkIcon(
+  <>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="8" y1="13" x2="16" y2="13" />
+    <line x1="8" y1="17" x2="16" y2="17" />
+  </>
+);
+const TEAL = "#4ECDC4";
+
+const emptyProfile = { name: "", rate: "", capacity: "45.1" };
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return { day: d.getDate(), mon: d.toLocaleString("en-US", { month: "short" }) };
+}
+
+function monthKey(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("en-US", { month: "long", year: "numeric" });
+}
+
+function App() {
+  const [loaded, setLoaded] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [charges, setCharges] = useState([]);
+  const [view, setView] = useState("dashboard");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [draft, setDraft] = useState(emptyProfile);
+  const [logDraft, setLogDraft] = useState(null);
+  const [historyDetail, setHistoryDetail] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const p = await window.storage.get("profile");
+        if (p && p.value) setProfile(JSON.parse(p.value));
+      } catch (e) {}
+      try {
+        const c = await window.storage.get("charges");
+        if (c && c.value) setCharges(JSON.parse(c.value));
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  async function saveProfile(next) {
+    setProfile(next);
+    try {
+      await window.storage.set("profile", JSON.stringify(next));
+    } catch (e) {}
+  }
+
+  async function saveCharges(next) {
+    setCharges(next);
+    try {
+      await window.storage.set("charges", JSON.stringify(next));
+    } catch (e) {}
+  }
+
+  const sortedCharges = useMemo(
+    () => [...charges].sort((a, b) => new Date(b.date) - new Date(a.date)),
+    [charges]
+  );
+
+  const lastCharge = sortedCharges[0] || null;
+
+  const thisMonth = new Date().getMonth();
+  const thisYear = new Date().getFullYear();
+  const monthCharges = charges.filter((c) => {
+    const d = new Date(c.date);
+    return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+  });
+  const monthCost = monthCharges.reduce((s, c) => s + (Number(c.cost) || 0), 0);
+
+  const avgEfficiency = useMemo(() => {
+    const withEff = charges.filter((c) => c.efficiency && isFinite(c.efficiency));
+    if (!withEff.length) return null;
+    return (withEff.reduce((s, c) => s + c.efficiency, 0) / withEff.length).toFixed(1);
+  }, [charges]);
+
+  if (!loaded) {
+    return (
+      <div style={s.phoneWrap}>
+        <div style={{ ...s.screen, alignItems: "center", justifyContent: "center" }}>
+          <div style={{ color: "#64748B", fontFamily: FONT }}>Loading…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <Welcome
+        onStart={(p) => {
+          saveProfile({ ...p, capacity: p.capacity || "45.1" });
+        }}
+      />
+    );
+  }
+
+  return (
+    <div style={s.phoneWrap}>
+      <div style={s.screen}>
+        {view === "dashboard" && (
+          <Dashboard
+            profile={profile}
+            lastCharge={lastCharge}
+            monthCost={monthCost}
+            monthCount={monthCharges.length}
+            avgEfficiency={avgEfficiency}
+            onLog={() => {
+              setLogDraft({
+                odometer: lastCharge ? String(lastCharge.odometer) : "",
+                before: lastCharge ? String(lastCharge.after) : "",
+                after: "",
+                location: "Home",
+                charger: "2.2",
+                notes: "",
+                cost: "",
+              });
+              setView("log");
+            }}
+          />
+        )}
+
+        {view === "history" && (
+          <History
+            charges={sortedCharges}
+            onOpen={(c) => setHistoryDetail(c)}
+          />
+        )}
+
+        {view === "profile" && (
+          <Profile
+            profile={profile}
+            editing={editingProfile}
+            draft={draft}
+            onEdit={() => {
+              setDraft(profile);
+              setEditingProfile(true);
+            }}
+            onChange={setDraft}
+            onSave={() => {
+              saveProfile(draft);
+              setEditingProfile(false);
+            }}
+            onCancel={() => setEditingProfile(false)}
+          />
+        )}
+
+        {view === "log" && logDraft && (
+          <LogCharge
+            draft={logDraft}
+            setDraft={setLogDraft}
+            profile={profile}
+            lastCharge={lastCharge}
+            onBack={() => setView("dashboard")}
+            onSave={(entry) => {
+              saveCharges([...charges, entry]);
+              setView("dashboard");
+              setLogDraft(null);
+            }}
+          />
+        )}
+
+        {historyDetail && (
+          <DetailOverlay
+            charge={historyDetail}
+            onClose={() => setHistoryDetail(null)}
+          />
+        )}
+
+        {view !== "log" && (
+          <BottomNav view={view} setView={setView} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+const FONT = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+
+const s = {
+  phoneWrap: {
+    minHeight: "100vh",
+    width: "100%",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    background: "#05090F",
+    fontFamily: FONT,
+    padding: "0",
+  },
+  screen: {
+    width: "100%",
+    maxWidth: 430,
+    minHeight: "100vh",
+    background: "#0B1420",
+    color: "#F1F5F9",
+    display: "flex",
+    flexDirection: "column",
+    position: "relative",
+  },
+};
+
+function StatusBar() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "14px 20px 6px",
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#F1F5F9",
+      }}
+    >
+      <span>9:41</span>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <span style={{ fontSize: 11 }}>●●●●</span>
+        <span style={{ fontSize: 11 }}>Wi‑Fi</span>
+        <span style={{ fontSize: 11 }}>▮</span>
+      </div>
+    </div>
+  );
+}
+
+function Card({ children, style }) {
+  return (
+    <div
+      style={{
+        background: "#131F2E",
+        border: "1px solid #1F2E40",
+        borderRadius: 14,
+        padding: 16,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, icon, value, onChange, placeholder, type = "text", suffix }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 6 }}>{label}</div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          background: "#0F1B29",
+          border: "1px solid #223244",
+          borderRadius: 10,
+          padding: "10px 12px",
+          gap: 8,
+        }}
+      >
+        {icon}
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          type={type}
+          inputMode={type === "number" ? "decimal" : "text"}
+          style={{
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "#F1F5F9",
+            fontSize: 15,
+            flex: 1,
+            fontFamily: FONT,
+          }}
+        />
+        {suffix && <span style={{ color: "#64748B", fontSize: 13 }}>{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function PrimaryButton({ children, onClick, style }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: "100%",
+        background: TEAL,
+        color: "#04211E",
+        border: "none",
+        borderRadius: 12,
+        padding: "14px",
+        fontSize: 15,
+        fontWeight: 700,
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        fontFamily: FONT,
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Welcome({ onStart }) {
+  const [name, setName] = useState("");
+  const [rate, setRate] = useState("65.00");
+
+  return (
+    <div style={s.phoneWrap}>
+      <div style={{ ...s.screen, background: "#0B1420" }}>
+        <StatusBar />
+        <div
+          style={{
+            padding: "16px 24px",
+            textAlign: "center",
+            background:
+              "linear-gradient(180deg, rgba(15,25,38,0.2) 0%, #0B1420 90%)",
+          }}
+        >
+          <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1 }}>
+            ATTO<span style={{ color: TEAL }}>LOG</span>
+          </div>
+          <div style={{ fontSize: 11, letterSpacing: 3, color: "#94A3B8", marginTop: 2 }}>
+            BYD ATTO 2
+          </div>
+
+          <div style={{ marginTop: 28, marginBottom: 14 }}>
+            <Car size={90} strokeWidth={1} color={TEAL} />
+          </div>
+
+          <div style={{ fontSize: 20, fontWeight: 700, marginTop: 8 }}>
+            Welcome to AttoLog
+          </div>
+          <div style={{ fontSize: 14, color: "#94A3B8", marginTop: 6 }}>
+            Let's set up your profile to get started.
+          </div>
+        </div>
+
+        <div style={{ padding: "8px 24px 24px", marginTop: "auto" }}>
+          <Field
+            label="Name"
+            icon={<User size={16} color="#64748B" />}
+            value={name}
+            onChange={setName}
+            placeholder="Your name"
+          />
+          <Field
+            label="Home Electricity Rate (Rs/kWh)"
+            icon={<Zap size={16} color="#64748B" />}
+            value={rate}
+            onChange={setRate}
+            placeholder="65.00"
+            type="number"
+            suffix="Rs/kWh"
+          />
+          <div style={{ fontSize: 12, color: "#64748B", marginTop: -8, marginBottom: 20, display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <Info size={13} style={{ marginTop: 2, flexShrink: 0 }} />
+            You can change this later in Profile.
+          </div>
+          <PrimaryButton
+            onClick={() =>
+              name.trim() &&
+              onStart({ name: name.trim(), rate: rate || "65.00" })
+            }
+          >
+            Get Started
+          </PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ profile, lastCharge, monthCost, monthCount, avgEfficiency, onLog }) {
+  return (
+    <>
+      <StatusBar />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 20px 16px" }}>
+        <div style={{ fontSize: 20, fontWeight: 800 }}>
+          Atto<span style={{ color: TEAL }}>Log</span>
+        </div>
+        <Bell size={20} color="#94A3B8" />
+      </div>
+
+      <div style={{ padding: "0 20px", flex: 1, overflowY: "auto", paddingBottom: 90 }}>
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: "#94A3B8" }}>Last Charge</span>
+            <span style={{ fontSize: 12, color: "#64748B" }}>
+              {lastCharge ? new Date(lastCharge.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+            {lastCharge ? (
+              <div style={{ fontSize: 26, fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ color: "#F1F5F9" }}>{lastCharge.before}%</span>
+                <span style={{ color: "#64748B", fontWeight: 400, fontSize: 18 }}>→</span>
+                <span style={{ color: TEAL }}>{lastCharge.after}%</span>
+              </div>
+            ) : (
+              <div style={{ fontSize: 15, color: "#64748B" }}>No charges logged yet</div>
+            )}
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                border: `2px solid ${TEAL}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Zap size={20} color={TEAL} fill={TEAL} />
+            </div>
+          </div>
+        </Card>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <Card>
+            <div style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.4 }}>Distance Since<br />Last Charge</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 14 }}>
+              <span style={{ fontSize: 22, fontWeight: 800 }}>
+                {lastCharge && lastCharge.distanceSince != null ? lastCharge.distanceSince : "—"}
+                <span style={{ fontSize: 13, fontWeight: 500, color: "#94A3B8" }}> km</span>
+              </span>
+              <Car size={20} color="#64748B" />
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.4 }}>Average Efficiency<br />(km/kWh)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 14 }}>
+              <span style={{ fontSize: 22, fontWeight: 800 }}>{avgEfficiency ?? "—"}</span>
+              <TrendingUp size={20} color="#64748B" />
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.4 }}>This Month's<br />Charging Cost</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 14 }}>
+              <span style={{ fontSize: 20, fontWeight: 800 }}>Rs. {monthCost.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+              <Wallet size={20} color="#64748B" />
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 12, color: "#94A3B8", lineHeight: 1.4 }}>Total Charges<br />This Month</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 14 }}>
+              <span style={{ fontSize: 22, fontWeight: 800 }}>{monthCount}</span>
+              <Calendar size={20} color="#64748B" />
+            </div>
+          </Card>
+        </div>
+
+        <PrimaryButton onClick={onLog} style={{ marginTop: 6 }}>
+          <Plus size={17} /> Log Charge
+        </PrimaryButton>
+      </div>
+    </>
+  );
+}
+
+function LogCharge({ draft, setDraft, profile, lastCharge, onBack, onSave }) {
+  const capacity = parseFloat(profile.capacity) || 45.1;
+  const rate = parseFloat(profile.rate) || 0;
+  const [showCostPrompt, setShowCostPrompt] = useState(false);
+  const [tempCost, setTempCost] = useState(draft.cost || "");
+
+  const before = parseFloat(draft.before) || 0;
+  const after = parseFloat(draft.after) || 0;
+  const odometer = parseFloat(draft.odometer) || 0;
+  const prevOdo = lastCharge ? parseFloat(lastCharge.odometer) : null;
+
+  const kwhAdded = after > before ? ((after - before) / 100) * capacity : 0;
+  const distanceSince = prevOdo != null && odometer > prevOdo ? Math.round(odometer - prevOdo) : null;
+  const chargerPower = parseFloat(draft.charger);
+  const chargingHours = kwhAdded > 0 && chargerPower ? kwhAdded / chargerPower : 0;
+  const isHome = draft.location === "Home";
+  const homeCost = isHome ? kwhAdded * rate : parseFloat(draft.cost) || 0;
+  const efficiency = distanceSince && kwhAdded ? distanceSince / kwhAdded : null;
+  const costPerKm = distanceSince && homeCost ? homeCost / distanceSince : null;
+
+  const canSave =
+    odometer > 0 &&
+    after > before &&
+    after <= 100 &&
+    before >= 0 &&
+    (draft.location === "Home" || (draft.location === "Commercial" && parseFloat(draft.cost) > 0));
+
+  function fmtHours(h) {
+    if (!h) return "—";
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    return `${hrs}h ${mins}m`;
+  }
+
+  return (
+    <>
+      <StatusBar />
+      <div style={{ display: "flex", alignItems: "center", padding: "8px 16px 16px", gap: 12 }}>
+        <ArrowLeft size={20} onClick={onBack} style={{ cursor: "pointer" }} />
+        <div style={{ fontSize: 17, fontWeight: 700, flex: 1, textAlign: "center", marginRight: 32 }}>
+          Log Charge
+        </div>
+      </div>
+
+      <div style={{ padding: "0 20px", flex: 1, overflowY: "auto", paddingBottom: 24 }}>
+        <Field
+          label="Odometer (km)"
+          icon={<Gauge size={16} color="#64748B" />}
+          value={draft.odometer}
+          onChange={(v) => setDraft({ ...draft, odometer: v })}
+          placeholder="12,458"
+          type="number"
+        />
+        <Field
+          label="Battery Before Charging (%)"
+          icon={<Battery size={16} color="#64748B" />}
+          value={draft.before}
+          onChange={(v) => setDraft({ ...draft, before: v })}
+          placeholder="35"
+          type="number"
+        />
+        <Field
+          label="Battery After Charging (%)"
+          icon={<Battery size={16} color={TEAL} />}
+          value={draft.after}
+          onChange={(v) => setDraft({ ...draft, after: v })}
+          placeholder="80"
+          type="number"
+        />
+
+        <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 8 }}>Charging Location</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          {["Home", "Commercial"].map((loc) => (
+            <button
+              key={loc}
+              onClick={() => {
+                setDraft({ ...draft, location: loc });
+                if (loc === "Commercial") {
+                  setTempCost(draft.cost || "");
+                  setShowCostPrompt(true);
+                }
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                padding: "12px",
+                borderRadius: 10,
+                border: draft.location === loc ? `1.5px solid ${TEAL}` : "1px solid #223244",
+                background: draft.location === loc ? "rgba(78,205,196,0.08)" : "#0F1B29",
+                color: draft.location === loc ? TEAL : "#94A3B8",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              {loc === "Home" ? <HomeIcon size={15} /> : <Zap size={15} />}
+              {loc}
+            </button>
+          ))}
+        </div>
+
+        {draft.location === "Home" ? (
+          <>
+            <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 8 }}>Home Charger</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+              {[{ v: "2.2", label: "2.2 kW", sub: "Portable Charger" }, { v: "7", label: "7 kW", sub: "Wall Charger" }].map((c) => (
+                <button
+                  key={c.v}
+                  onClick={() => setDraft({ ...draft, charger: c.v })}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    padding: "14px 8px",
+                    borderRadius: 10,
+                    border: draft.charger === c.v ? `1.5px solid ${TEAL}` : "1px solid #223244",
+                    background: draft.charger === c.v ? "rgba(78,205,196,0.08)" : "#0F1B29",
+                    color: draft.charger === c.v ? TEAL : "#94A3B8",
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                  }}
+                >
+                  <Zap size={16} />
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{c.label}</span>
+                  <span style={{ fontSize: 11 }}>{c.sub}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 6 }}>Charging Cost</div>
+            <div
+              onClick={() => {
+                setTempCost(draft.cost || "");
+                setShowCostPrompt(true);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#0F1B29",
+                border: "1px solid #223244",
+                borderRadius: 10,
+                padding: "10px 12px",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Wallet size={16} color="#64748B" />
+                <span style={{ fontSize: 15, color: draft.cost ? "#F1F5F9" : "#64748B" }}>
+                  {draft.cost ? `Rs. ${Number(draft.cost).toLocaleString()}` : "Tap to enter cost"}
+                </span>
+              </div>
+              <Pencil size={14} color="#64748B" />
+            </div>
+          </div>
+        )}
+
+        {showCostPrompt && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(5,9,15,0.75)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 30,
+              padding: 24,
+            }}
+            onClick={() => setShowCostPrompt(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "100%",
+                maxWidth: 320,
+                background: "#131F2E",
+                border: "1px solid #223244",
+                borderRadius: 16,
+                padding: 20,
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+                Commercial Charging Cost
+              </div>
+              <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 16 }}>
+                Enter the amount you paid for this charge.
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "#0F1B29",
+                  border: "1px solid #223244",
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  gap: 8,
+                  marginBottom: 18,
+                }}
+              >
+                <span style={{ color: "#64748B", fontSize: 15 }}>Rs.</span>
+                <input
+                  autoFocus
+                  type="number"
+                  inputMode="decimal"
+                  value={tempCost}
+                  onChange={(e) => setTempCost(e.target.value)}
+                  placeholder="0"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: "#F1F5F9",
+                    fontSize: 16,
+                    flex: 1,
+                    fontFamily: FONT,
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setShowCostPrompt(false)}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    border: "1px solid #223244",
+                    color: "#94A3B8",
+                    borderRadius: 10,
+                    padding: "11px",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setDraft({ ...draft, cost: tempCost });
+                    setShowCostPrompt(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    background: TEAL,
+                    border: "none",
+                    color: "#04211E",
+                    borderRadius: 10,
+                    padding: "11px",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                  }}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 6 }}>Notes (optional)</div>
+          <textarea
+            value={draft.notes}
+            onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+            placeholder="Add any notes..."
+            rows={2}
+            style={{
+              width: "100%",
+              background: "#0F1B29",
+              border: "1px solid #223244",
+              borderRadius: 10,
+              padding: "10px 12px",
+              color: "#F1F5F9",
+              fontSize: 14,
+              outline: "none",
+              resize: "none",
+              fontFamily: FONT,
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {kwhAdded > 0 && (
+          <Card style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: "#F1F5F9" }}>
+              Calculated Summary
+            </div>
+            <SummaryRow icon={<Zap size={14} />} label="kWh Added" value={`${kwhAdded.toFixed(1)} kWh`} />
+            {distanceSince != null && (
+              <SummaryRow icon={<Car size={14} />} label="Distance Since Last Charge" value={`${distanceSince} km`} />
+            )}
+            {draft.location === "Home" && (
+              <SummaryRow icon={<Zap size={14} />} label={`Est. Charging Time (${chargerPower} kW)`} value={fmtHours(chargingHours)} />
+            )}
+            <SummaryRow
+              icon={<Wallet size={14} />}
+              label={draft.location === "Home" ? "Charging Cost (Home)" : "Charging Cost (Commercial)"}
+              value={`Rs. ${homeCost.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
+            />
+            {efficiency != null && (
+              <SummaryRow icon={<TrendingUp size={14} />} label="Efficiency (km/kWh)" value={efficiency.toFixed(1)} />
+            )}
+            {costPerKm != null && (
+              <SummaryRow icon={<Wallet size={14} />} label="Cost per km" value={`Rs. ${costPerKm.toFixed(2)}`} last />
+            )}
+          </Card>
+        )}
+
+        <PrimaryButton
+          onClick={() => {
+            if (!canSave) return;
+            onSave({
+              id: uid(),
+              date: new Date().toISOString(),
+              odometer,
+              before,
+              after,
+              location: draft.location,
+              charger: draft.location === "Home" ? chargerPower : null,
+              notes: draft.notes,
+              kwh: Number(kwhAdded.toFixed(2)),
+              distanceSince,
+              cost: Number(homeCost.toFixed(2)),
+              efficiency: efficiency,
+            });
+          }}
+          style={{ opacity: canSave ? 1 : 0.5 }}
+        >
+          Save Charge
+        </PrimaryButton>
+      </div>
+    </>
+  );
+}
+
+function SummaryRow({ icon, label, value, last }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "9px 0",
+        borderBottom: last ? "none" : "1px solid #1F2E40",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#94A3B8", fontSize: 13 }}>
+        {icon}
+        {label}
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700 }}>{value}</div>
+    </div>
+  );
+}
+
+function History({ charges, onOpen }) {
+  const groups = useMemo(() => {
+    const map = {};
+    charges.forEach((c) => {
+      const k = monthKey(c.date);
+      if (!map[k]) map[k] = [];
+      map[k].push(c);
+    });
+    return map;
+  }, [charges]);
+
+  const monthKeys = Object.keys(groups);
+
+  return (
+    <>
+      <StatusBar />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 20px 16px" }}>
+        <div style={{ fontSize: 20, fontWeight: 800 }}>History</div>
+        <Filter size={19} color="#94A3B8" />
+      </div>
+
+      <div style={{ padding: "0 20px", flex: 1, overflowY: "auto", paddingBottom: 90 }}>
+        {monthKeys.length === 0 && (
+          <div style={{ textAlign: "center", color: "#64748B", marginTop: 60, fontSize: 14 }}>
+            No charges logged yet.<br />Tap "Log Charge" on the Dashboard to get started.
+          </div>
+        )}
+        {monthKeys.map((mk) => (
+          <div key={mk} style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, color: "#64748B", letterSpacing: 1, marginBottom: 8, fontWeight: 700 }}>
+              {mk.toUpperCase()}
+            </div>
+            {groups[mk].map((c) => {
+              const { day, mon } = fmtDate(c.date);
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => onOpen(c)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    padding: "12px 4px",
+                    borderBottom: "1px solid #1F2E40",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ textAlign: "center", width: 34 }}>
+                    <div style={{ fontSize: 17, fontWeight: 800 }}>{day}</div>
+                    <div style={{ fontSize: 10, color: "#64748B" }}>{mon}</div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>
+                      {c.before}% <span style={{ color: "#64748B", fontWeight: 400 }}>→</span> {c.after}%
+                    </div>
+                    <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2 }}>
+                      {c.distanceSince != null ? `↕ ${c.distanceSince} km` : "—"} · Rs. {Number(c.cost).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: c.location === "Home" ? TEAL : "#FB923C",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {c.location}
+                    </div>
+                    <ChevronRight size={16} color="#475569" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function DetailOverlay({ charge, onClose }) {
+  const { day, mon } = fmtDate(charge.date);
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(5,9,15,0.7)",
+        display: "flex",
+        alignItems: "flex-end",
+        zIndex: 20,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          background: "#0F1B29",
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+          padding: 20,
+          border: "1px solid #223244",
+          borderBottom: "none",
+        }}
+      >
+        <div style={{ width: 40, height: 4, background: "#334155", borderRadius: 2, margin: "0 auto 16px" }} />
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>
+          {mon} {day} — {charge.before}% → {charge.after}%
+        </div>
+        <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 16 }}>{charge.location}{charge.charger ? ` · ${charge.charger} kW` : ""}</div>
+        <SummaryRow icon={<Gauge size={14} />} label="Odometer" value={`${Number(charge.odometer).toLocaleString()} km`} />
+        <SummaryRow icon={<Zap size={14} />} label="kWh Added" value={`${charge.kwh} kWh`} />
+        {charge.distanceSince != null && (
+          <SummaryRow icon={<Car size={14} />} label="Distance Since Last" value={`${charge.distanceSince} km`} />
+        )}
+        {charge.efficiency != null && (
+          <SummaryRow icon={<TrendingUp size={14} />} label="Efficiency" value={`${charge.efficiency.toFixed(1)} km/kWh`} />
+        )}
+        <SummaryRow icon={<Wallet size={14} />} label="Cost" value={`Rs. ${Number(charge.cost).toLocaleString()}`} last={!charge.notes} />
+        {charge.notes && (
+          <div style={{ marginTop: 12, padding: 12, background: "#131F2E", borderRadius: 10, fontSize: 13, color: "#94A3B8", display: "flex", gap: 8 }}>
+            <FileText size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            {charge.notes}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Profile({ profile, editing, draft, onEdit, onChange, onSave, onCancel }) {
+  return (
+    <>
+      <StatusBar />
+      <div style={{ padding: "8px 20px 16px", fontSize: 20, fontWeight: 800, textAlign: "center" }}>
+        Profile
+      </div>
+
+      <div style={{ padding: "0 20px", flex: 1, overflowY: "auto", paddingBottom: 90 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: "#1F2E40",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <User size={26} color="#64748B" />
+          </div>
+          {editing ? (
+            <input
+              value={draft.name}
+              onChange={(e) => onChange({ ...draft, name: e.target.value })}
+              style={{
+                background: "#0F1B29",
+                border: "1px solid #223244",
+                borderRadius: 8,
+                padding: "8px 10px",
+                color: "#F1F5F9",
+                fontSize: 16,
+                fontWeight: 700,
+                flex: 1,
+                fontFamily: FONT,
+              }}
+            />
+          ) : (
+            <div style={{ fontSize: 17, fontWeight: 700, flex: 1 }}>{profile.name}</div>
+          )}
+          {!editing && (
+            <Pencil size={18} color="#64748B" style={{ cursor: "pointer" }} onClick={onEdit} />
+          )}
+        </div>
+
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 8 }}>Home Electricity Rate (Rs/kWh)</div>
+          {editing ? (
+            <input
+              type="number"
+              value={draft.rate}
+              onChange={(e) => onChange({ ...draft, rate: e.target.value })}
+              style={{
+                background: "#0F1B29",
+                border: "1px solid #223244",
+                borderRadius: 8,
+                padding: "10px 12px",
+                color: TEAL,
+                fontSize: 20,
+                fontWeight: 800,
+                width: "100%",
+                fontFamily: FONT,
+                boxSizing: "border-box",
+              }}
+            />
+          ) : (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <Zap size={16} color={TEAL} />
+              <span style={{ fontSize: 22, fontWeight: 800, color: TEAL }}>{profile.rate}</span>
+              <span style={{ fontSize: 12, color: "#64748B" }}>Rs/kWh</span>
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: "#64748B", marginTop: 10 }}>
+            This rate is used to calculate the cost of your home charging sessions.
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 8 }}>Battery Capacity (kWh)</div>
+          {editing ? (
+            <input
+              type="number"
+              value={draft.capacity}
+              onChange={(e) => onChange({ ...draft, capacity: e.target.value })}
+              style={{
+                background: "#0F1B29",
+                border: "1px solid #223244",
+                borderRadius: 8,
+                padding: "10px 12px",
+                color: "#F1F5F9",
+                fontSize: 18,
+                fontWeight: 800,
+                width: "100%",
+                fontFamily: FONT,
+                boxSizing: "border-box",
+              }}
+            />
+          ) : (
+            <div style={{ fontSize: 18, fontWeight: 800 }}>{profile.capacity} kWh</div>
+          )}
+          <div style={{ fontSize: 12, color: "#64748B", marginTop: 10 }}>
+            Used to estimate kWh added from your battery %. Default is set to your Atto 2's 45.1 kWh usable capacity.
+          </div>
+        </Card>
+
+        {editing ? (
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={onCancel}
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "1px solid #223244",
+                color: "#94A3B8",
+                borderRadius: 12,
+                padding: "13px",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              Cancel
+            </button>
+            <PrimaryButton onClick={onSave} style={{ flex: 1 }}>Save</PrimaryButton>
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "14px 4px",
+                borderBottom: "1px solid #1F2E40",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}>
+                <Info size={16} color="#94A3B8" /> About AttoLog
+              </div>
+              <ChevronRight size={16} color="#475569" />
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function BottomNav({ view, setView }) {
+  const items = [
+    { key: "dashboard", icon: HomeIcon, label: "Dashboard" },
+    { key: "history", icon: List, label: "History" },
+    { key: "profile", icon: User, label: "Profile" },
+  ];
+  return (
+    <div
+      style={{
+        display: "flex",
+        borderTop: "1px solid #1F2E40",
+        background: "#0B1420",
+        padding: "10px 0 18px",
+        position: "sticky",
+        bottom: 0,
+      }}
+    >
+      {items.map(({ key, icon: Icon, label }) => (
+        <div
+          key={key}
+          onClick={() => setView(key)}
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 3,
+            cursor: "pointer",
+            color: view === key ? TEAL : "#64748B",
+          }}
+        >
+          <Icon size={20} />
+          <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+
+<script>
+  try {
+    const src = document.getElementById("app-source").textContent;
+    const out = Babel.transform(src, {
+      presets: [["react", { runtime: "classic" }]],
+    }).code;
+    // eslint-disable-next-line no-new-func
+    new Function("React", "ReactDOM", out)(window.React, window.ReactDOM);
+  } catch (err) {
+    document.getElementById("root").innerHTML =
+      '<div style="color:#F1F5F9;background:#0B1420;min-height:100vh;padding:24px;font-family:sans-serif;">' +
+      '<h2 style="color:#F87171;">AttoLog failed to load</h2>' +
+      '<pre style="white-space:pre-wrap;font-size:13px;color:#94A3B8;">' +
+      (err && err.message ? err.message.replace(/</g, "&lt;") : String(err)) +
+      "</pre></div>";
+    console.error(err);
+  }
+</script>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
